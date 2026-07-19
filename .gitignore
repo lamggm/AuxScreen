@@ -1,0 +1,11 @@
+/target/
+/android/.gradle/
+/android/app/build/
+/android/local.properties
+/.idea/
+*.iml
+*.log
+*.jks
+*.keystore
+/.artifacts/
+.DS_Store
