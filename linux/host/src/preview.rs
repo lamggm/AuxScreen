@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, bail};
 use gst::prelude::*;
 use tokio::time::{Duration, interval};
 
-use crate::{cli::SourceArg, portal::CaptureInfo};
+use crate::{cli::SourceArg, portal::CaptureInfo, shutdown};
 
 pub async fn run(source: SourceArg, capture: CaptureInfo) -> Result<()> {
     let source = match source {
@@ -32,7 +32,7 @@ pub async fn run(source: SourceArg, capture: CaptureInfo) -> Result<()> {
         .map_err(|_| anyhow!("preview did not create a pipeline"))?;
     pipeline.set_state(gst::State::Playing)?;
     println!(
-        "Preview running at {}x{}. Press Ctrl+C to stop.",
+        "Preview running at {}x{}. Press Ctrl+C or send SIGTERM to stop.",
         capture.size.0, capture.size.1
     );
 
@@ -40,7 +40,10 @@ pub async fn run(source: SourceArg, capture: CaptureInfo) -> Result<()> {
     let mut tick = interval(Duration::from_millis(50));
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => break,
+            signal = shutdown::wait() => {
+                signal?;
+                break;
+            },
             _ = tick.tick() => {
                 while let Some(message) = bus.pop() {
                     use gst::message::MessageView;

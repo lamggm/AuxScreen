@@ -5,6 +5,7 @@ mod portal;
 mod preview;
 mod protocol;
 mod server;
+mod shutdown;
 
 use anyhow::Result;
 use clap::Parser;

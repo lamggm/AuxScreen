@@ -31,6 +31,7 @@ use crate::{
     media::{MediaSession, fit_dimensions},
     portal::CaptureInfo,
     protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage},
+    shutdown,
 };
 
 #[derive(Debug)]
@@ -161,14 +162,16 @@ pub async fn run(config: ServeArgs, capture: CaptureInfo) -> Result<()> {
         "  ICE UDP:  {}-{}",
         config.ice_ports.min, config.ice_ports.max
     );
-    println!("Press Ctrl+C to stop and remove the virtual monitor.");
+    println!("Press Ctrl+C or send SIGTERM to stop and remove the virtual monitor.");
 
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
+        if let Err(error) = shutdown::wait().await {
+            tracing::warn!(%error, "failed to install shutdown signal handler");
+        }
     })
     .await?;
     Ok(())

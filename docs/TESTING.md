@@ -22,9 +22,10 @@ PipeWire, `pipewiresrc`, `webrtcbin`, `x264enc`, endereço LAN e portas livres.
 
 ## Gate 2 — portal e prévia
 
-Execute `preview --source virtual`, aprove o diálogo do KDE e mantenha a prévia
-por dez minutos. Mova uma janela para o monitor virtual. Ao encerrar, cancelar ou
-enviar `SIGTERM`, confirme que o monitor e a sessão PipeWire desapareceram.
+Execute `preview --source virtual`, marque somente o monitor virtual no diálogo
+do KDE, confirme pelo botão do diálogo e mantenha a prévia por dez minutos. Mova
+uma janela para o monitor virtual. Ao encerrar, cancelar ou enviar `SIGTERM`,
+confirme que o processo termina e que monitor e sessão PipeWire desaparecem.
 
 ## Gate 3 — transporte isolado
 

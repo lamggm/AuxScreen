@@ -80,9 +80,17 @@ essas portas globalmente em Docker, Tailscale ou interfaces públicas.
 
 ## Troubleshooting do portal KDE
 
+- O host pede seleção múltipla como contorno para um crash observado no
+  seletor single-select do KDE 6.7.3 com Qt 6.11. Marque somente **Monitor
+  virtual** e confirme pelo botão do diálogo. O host rejeita qualquer resultado
+  diferente de exatamente um stream virtual.
 - `portal approval timed out after 60 seconds`: desbloqueie a sessão gráfica e
   responda ao diálogo; o host não clica por você, porque automação cega de
   consentimento é apenas malware com documentação melhor.
+- Se `xdg-desktop-portal-kde` fechar inesperadamente, preserve o journal
+  sanitizado, confirme que `plasma-xdg-desktop-portal-kde.service` voltou a
+  `active` e que não restou `Virtual-virtual-xdp-kde-` ou nó
+  `kwin-screencast`. Não repita indefinidamente um diálogo que está abortando.
 - `portal returned no PipeWire stream`: encerre o host, confirme que
   `xdg-desktop-portal-kde` está ativo e tente uma nova sessão.
 - `instead of a virtual monitor`: o compositor retornou outra fonte; cancele e
@@ -92,7 +100,8 @@ essas portas globalmente em Docker, Tailscale ou interfaces públicas.
 
 ## Rollback
 
-1. Encerre `auxscreen-host`; isso fecha a sessão do portal e remove o monitor.
+1. Encerre `auxscreen-host` com `Ctrl+C` ou `SIGTERM`; ambos fecham a sessão do
+   portal e removem o monitor.
 2. No tablet, desconecte no app ou execute
    `adb -s RX2Y800FTYY uninstall io.github.lamggm.auxscreen.personal`.
 3. Para voltar a um APK pessoal anterior, instale-o com `adb install -r -t`.

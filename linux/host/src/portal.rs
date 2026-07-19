@@ -1,6 +1,6 @@
 use std::{future::Future, os::fd::OwnedFd, sync::Arc};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use ashpd::desktop::{
     PersistMode,
     screencast::{
@@ -55,7 +55,12 @@ where
             SelectSourcesOptions::default()
                 .set_cursor_mode(CursorMode::Hidden)
                 .set_sources(BitFlags::from_flag(SourceType::Virtual))
-                .set_multiple(false)
+                // Plasma 6.7.3 with Qt 6.11 can abort when a single-select
+                // delegate accepts the dialog synchronously from its click
+                // handler. Multi-select uses the dialog's Share button and
+                // avoids that upstream crash. We still enforce exactly one
+                // stream below, so the host remains single-source.
+                .set_multiple(true)
                 .set_persist_mode(PersistMode::DoNot),
         )
         .await
@@ -72,10 +77,8 @@ where
     })
     .await
     .context("portal approval timed out after 60 seconds")??;
-    let stream = response
-        .streams()
-        .first()
-        .ok_or_else(|| anyhow!("portal returned no PipeWire stream"))?;
+    validate_stream_count(response.streams().len())?;
+    let stream = &response.streams()[0];
     if stream.source_type() != Some(SourceType::Virtual) {
         bail!(
             "portal returned {:?} instead of a virtual monitor",
@@ -108,4 +111,34 @@ where
         tracing::warn!(%error, "failed to close portal session cleanly");
     }
     result
+}
+
+fn validate_stream_count(count: usize) -> Result<()> {
+    match count {
+        1 => Ok(()),
+        0 => bail!("portal returned no PipeWire stream"),
+        count => bail!("portal returned {count} streams; AuxScreen requires exactly one"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_stream_count;
+
+    #[test]
+    fn accepts_exactly_one_portal_stream() {
+        assert!(validate_stream_count(1).is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_or_multiple_portal_streams() {
+        assert_eq!(
+            validate_stream_count(0).unwrap_err().to_string(),
+            "portal returned no PipeWire stream"
+        );
+        assert_eq!(
+            validate_stream_count(2).unwrap_err().to_string(),
+            "portal returned 2 streams; AuxScreen requires exactly one"
+        );
+    }
 }
