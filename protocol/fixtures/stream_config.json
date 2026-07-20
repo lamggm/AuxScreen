@@ -1,0 +1,9 @@
+{
+  "type": "stream_config",
+  "source_width": 2112,
+  "source_height": 1320,
+  "encoded_width": 1920,
+  "encoded_height": 1200,
+  "fps": 30,
+  "bitrate_kbps": 6000
+}

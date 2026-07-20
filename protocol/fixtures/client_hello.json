@@ -1,0 +1,9 @@
+{
+  "type": "client_hello",
+  "protocol": 1,
+  "token": "temporary-token",
+  "device": "Samsung SM-X400",
+  "max_width": 2112,
+  "max_height": 1320,
+  "max_fps": 60
+}

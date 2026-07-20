@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lamggm/AuxScreen/protocol/schema/control-v1.schema.json",
+  "title": "AuxScreen signaling protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/client_hello" },
+    { "$ref": "#/$defs/hello_ack" },
+    { "$ref": "#/$defs/offer" },
+    { "$ref": "#/$defs/answer" },
+    { "$ref": "#/$defs/ice_candidate" },
+    { "$ref": "#/$defs/stream_config" },
+    { "$ref": "#/$defs/ping" },
+    { "$ref": "#/$defs/pong" },
+    { "$ref": "#/$defs/client_stats" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "client_hello": {
+      "type": "object",
+      "required": ["type", "protocol", "token", "device", "max_width", "max_height", "max_fps"],
+      "properties": {
+        "type": { "const": "client_hello" },
+        "protocol": { "const": 1 },
+        "token": { "type": "string", "maxLength": 128 },
+        "device": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "max_width": { "type": "integer", "minimum": 320 },
+        "max_height": { "type": "integer", "minimum": 240 },
+        "max_fps": { "type": "integer", "minimum": 1, "maximum": 240 }
+      },
+      "additionalProperties": false
+    },
+    "hello_ack": {
+      "type": "object",
+      "required": ["type", "protocol"],
+      "properties": {
+        "type": { "const": "hello_ack" },
+        "protocol": { "const": 1 }
+      },
+      "additionalProperties": false
+    },
+    "offer": {
+      "type": "object",
+      "required": ["type", "sdp"],
+      "properties": {
+        "type": { "const": "offer" },
+        "sdp": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "answer": {
+      "type": "object",
+      "required": ["type", "sdp"],
+      "properties": {
+        "type": { "const": "answer" },
+        "sdp": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ice_candidate": {
+      "type": "object",
+      "required": ["type", "candidate", "sdp_mid", "sdp_mline_index"],
+      "properties": {
+        "type": { "const": "ice_candidate" },
+        "candidate": { "type": "string", "minLength": 1 },
+        "sdp_mid": { "type": ["string", "null"] },
+        "sdp_mline_index": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "stream_config": {
+      "type": "object",
+      "required": ["type", "source_width", "source_height", "encoded_width", "encoded_height", "fps", "bitrate_kbps"],
+      "properties": {
+        "type": { "const": "stream_config" },
+        "source_width": { "type": "integer", "minimum": 1 },
+        "source_height": { "type": "integer", "minimum": 1 },
+        "encoded_width": { "type": "integer", "minimum": 2 },
+        "encoded_height": { "type": "integer", "minimum": 2 },
+        "fps": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "bitrate_kbps": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ping": {
+      "type": "object",
+      "required": ["type", "nonce"],
+      "properties": {
+        "type": { "const": "ping" },
+        "nonce": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "pong": {
+      "type": "object",
+      "required": ["type", "nonce"],
+      "properties": {
+        "type": { "const": "pong" },
+        "nonce": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "client_stats": {
+      "type": "object",
+      "required": ["type", "rendered_fps", "frames_dropped", "decoder"],
+      "properties": {
+        "type": { "const": "client_stats" },
+        "rendered_fps": { "type": "number", "minimum": 0 },
+        "frames_decoded": { "type": ["integer", "null"], "minimum": 0 },
+        "frames_dropped": { "type": "integer", "minimum": 0 },
+        "bitrate_kbps": { "type": ["number", "null"], "minimum": 0 },
+        "jitter_ms": { "type": ["number", "null"], "minimum": 0 },
+        "rtt_ms": { "type": ["number", "null"], "minimum": 0 },
+        "packets_received": { "type": ["integer", "null"], "minimum": 0 },
+        "packets_lost": { "type": ["integer", "null"] },
+        "jitter_buffer_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "jitter_buffer_target_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "jitter_buffer_minimum_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "decode_time_ms": { "type": ["number", "null"], "minimum": 0 },
+        "processing_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "decoder": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["type", "code", "message"],
+      "properties": {
+        "type": { "const": "error" },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "client_stats",
+  "rendered_fps": 29.5,
+  "frames_decoded": 900,
+  "frames_dropped": 0,
+  "bitrate_kbps": 5900.0,
+  "jitter_ms": 3.2,
+  "rtt_ms": 8.4,
+  "packets_received": 2841,
+  "packets_lost": 0,
+  "jitter_buffer_delay_ms": 18.4,
+  "jitter_buffer_target_delay_ms": 22.0,
+  "jitter_buffer_minimum_delay_ms": 10.0,
+  "decode_time_ms": 2.1,
+  "processing_delay_ms": 25.0,
+  "decoder": "c2.exynos.h264.decoder"
+}
