@@ -38,7 +38,7 @@ use crate::{
 struct ServerState {
     config: ServeArgs,
     capture: CaptureInfo,
-    token: String,
+    token: Option<String>,
     connected: AtomicBool,
     failed_auth: AuthLimiter,
 }
@@ -79,7 +79,7 @@ impl HeartbeatState {
 
 fn validate_client_hello(
     message: ClientMessage,
-    expected_token: &str,
+    expected_token: Option<&str>,
 ) -> std::result::Result<ClientCapabilities, ServerMessage> {
     let ClientMessage::ClientHello {
         protocol,
@@ -95,7 +95,7 @@ fn validate_client_hello(
             "first message must be client_hello",
         ));
     };
-    if token != expected_token {
+    if expected_token.is_some_and(|expected| token != expected) {
         return Err(ServerMessage::error(
             "unauthorized",
             "invalid session token",
@@ -136,11 +136,13 @@ impl AuthLimiter {
 
 pub async fn run(config: ServeArgs, capture: CaptureInfo) -> Result<()> {
     config.validate()?;
-    let token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(24)
-        .map(char::from)
-        .collect();
+    let token = (!config.no_auth).then(|| {
+        rand::rng()
+            .sample_iter(&Alphanumeric)
+            .take(24)
+            .map(char::from)
+            .collect::<String>()
+    });
     let state = Arc::new(ServerState {
         config: config.clone(),
         capture,
@@ -157,7 +159,11 @@ pub async fn run(config: ServeArgs, capture: CaptureInfo) -> Result<()> {
 
     println!("AuxScreen ready");
     println!("  endpoint: ws://{}/v1/session", config.listen);
-    println!("  token:    {token}");
+    if let Some(token) = &token {
+        println!("  token:    {token}");
+    } else {
+        println!("  authentication: disabled (--no-auth; LAN testing only)");
+    }
     println!(
         "  ICE UDP:  {}-{}",
         config.ice_ports.min, config.ice_ports.max
@@ -231,7 +237,7 @@ async fn handle_socket(
         .await
         .context("client hello timeout")?
         .ok_or_else(|| anyhow::anyhow!("client disconnected before hello"))??;
-    let capabilities = match validate_client_hello(parse_text(first)?, &state.token) {
+    let capabilities = match validate_client_hello(parse_text(first)?, state.token.as_deref()) {
         Ok(capabilities) => capabilities,
         Err(error) => {
             if matches!(&error, ServerMessage::Error { code, .. } if code == "unauthorized") {
@@ -272,7 +278,24 @@ async fn handle_socket(
         },
     )
     .await?;
-    media.start()?;
+    if let Err(initial_error) = media.start() {
+        let details = format!("{initial_error:#}");
+        if !media.uses_gl_fallback() && is_negotiation_failure(&details) {
+            tracing::warn!(%details, "media startup negotiation failed; rebuilding with OpenGL bridge");
+            let replacement = MediaSession::new_with_gl(
+                &state.config,
+                state.capture.clone(),
+                outbound_tx.clone(),
+                true,
+            )?;
+            replacement.start().with_context(|| {
+                format!("OpenGL fallback also failed after initial error: {details}")
+            })?;
+            media = replacement;
+        } else {
+            return Err(initial_error);
+        }
+    }
 
     let mut bus_tick = interval(Duration::from_millis(50));
     bus_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -301,7 +324,7 @@ async fn handle_socket(
                 while let Some(message) = media.pop_bus_message() {
                     if let Err(error) = media.handle_bus_message(&message) {
                         let details = error.to_string();
-                        let negotiation_failed = details.contains("not-negotiated") || details.contains("not negotiated");
+                        let negotiation_failed = is_negotiation_failure(&details);
                         if negotiation_failed && !media.uses_gl_fallback() {
                             tracing::warn!(%details, "DMA-BUF negotiation failed; rebuilding with OpenGL bridge");
                             let replacement = MediaSession::new_with_gl(
@@ -331,6 +354,10 @@ async fn handle_socket(
     Ok(())
 }
 
+fn is_negotiation_failure(details: &str) -> bool {
+    details.contains("not-negotiated") || details.contains("not negotiated")
+}
+
 async fn handle_client_message(
     media: &MediaSession,
     socket: &mut WebSocket,
@@ -354,6 +381,11 @@ async fn handle_client_message(
             rtt_ms,
             packets_received,
             packets_lost,
+            jitter_buffer_delay_ms,
+            jitter_buffer_target_delay_ms,
+            jitter_buffer_minimum_delay_ms,
+            decode_time_ms,
+            processing_delay_ms,
             decoder,
         } => tracing::info!(
             rendered_fps,
@@ -364,6 +396,11 @@ async fn handle_client_message(
             ?rtt_ms,
             ?packets_received,
             ?packets_lost,
+            ?jitter_buffer_delay_ms,
+            ?jitter_buffer_target_delay_ms,
+            ?jitter_buffer_minimum_delay_ms,
+            ?decode_time_ms,
+            ?processing_delay_ms,
             ?decoder,
             "Android client stats"
         ),
@@ -428,6 +465,7 @@ mod tests {
         Arc::new(ServerState {
             config: ServeArgs {
                 source: crate::cli::SourceArg::Test,
+                encoder: crate::cli::EncoderArg::X264,
                 listen: "127.0.0.1:0".parse().unwrap(),
                 ice_ip: "192.168.1.254".into(),
                 ice_ports: crate::cli::PortRange {
@@ -438,9 +476,10 @@ mod tests {
                 fps: 30,
                 bitrate_kbps: 6000,
                 use_gl_fallback: false,
+                no_auth: false,
             },
             capture: CaptureInfo::test_pattern((1920, 1200)),
-            token: "secret".into(),
+            token: Some("secret".into()),
             connected: AtomicBool::new(false),
             failed_auth: AuthLimiter::default(),
         })
@@ -468,15 +507,24 @@ mod tests {
             max_height: 1320,
             max_fps: 60,
         };
-        assert!(validate_client_hello(hello.clone(), "secret").is_ok());
+        assert!(validate_client_hello(hello.clone(), Some("secret")).is_ok());
         assert!(matches!(
-            validate_client_hello(hello.clone(), "wrong"),
+            validate_client_hello(hello.clone(), Some("wrong")),
             Err(ServerMessage::Error { code, .. }) if code == "unauthorized"
         ));
         assert!(matches!(
-            validate_client_hello(ClientMessage::Ping { nonce: 1 }, "secret"),
+            validate_client_hello(ClientMessage::Ping { nonce: 1 }, Some("secret")),
             Err(ServerMessage::Error { code, .. }) if code == "hello_required"
         ));
+        let no_auth = ClientMessage::ClientHello {
+            protocol: PROTOCOL_VERSION,
+            token: String::new(),
+            device: "SM-X400".into(),
+            max_width: 2112,
+            max_height: 1320,
+            max_fps: 60,
+        };
+        assert!(validate_client_hello(no_auth, None).is_ok());
         let incompatible = ClientMessage::ClientHello {
             protocol: 999,
             token: "secret".into(),
@@ -486,7 +534,7 @@ mod tests {
             max_fps: 60,
         };
         assert!(matches!(
-            validate_client_hello(incompatible, "secret"),
+            validate_client_hello(incompatible, Some("secret")),
             Err(ServerMessage::Error { code, .. }) if code == "protocol_mismatch"
         ));
     }

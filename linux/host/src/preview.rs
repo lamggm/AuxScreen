@@ -9,7 +9,7 @@ use crate::{cli::SourceArg, portal::CaptureInfo, shutdown};
 pub async fn run(source: SourceArg, capture: CaptureInfo) -> Result<()> {
     let source = match source {
         SourceArg::Test => "videotestsrc pattern=ball is-live=true do-timestamp=true".to_string(),
-        SourceArg::Virtual => {
+        SourceArg::Virtual | SourceArg::Monitor => {
             let fd = capture
                 .pipewire_fd
                 .as_ref()

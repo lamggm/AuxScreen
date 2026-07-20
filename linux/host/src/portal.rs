@@ -1,4 +1,12 @@
-use std::{future::Future, os::fd::OwnedFd, sync::Arc};
+use std::{
+    env,
+    fs::{self, OpenOptions},
+    future::Future,
+    io::Write,
+    os::{fd::OwnedFd, unix::fs::OpenOptionsExt},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use ashpd::desktop::{
@@ -34,6 +42,27 @@ where
     F: FnOnce(CaptureInfo) -> Fut,
     Fut: Future<Output = Result<T>>,
 {
+    with_capture(SourceType::Virtual, "virtual monitor", "virtual", callback).await
+}
+
+pub async fn with_monitor_capture<T, F, Fut>(callback: F) -> Result<T>
+where
+    F: FnOnce(CaptureInfo) -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    with_capture(SourceType::Monitor, "physical monitor", "monitor", callback).await
+}
+
+async fn with_capture<T, F, Fut>(
+    source_type: SourceType,
+    source_label: &'static str,
+    source_key: &'static str,
+    callback: F,
+) -> Result<T>
+where
+    F: FnOnce(CaptureInfo) -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
     let portal = Screencast::new()
         .await
         .context("failed to connect to ScreenCast portal")?;
@@ -41,32 +70,40 @@ where
         .available_source_types()
         .await
         .context("failed to query portal source types")?;
-    if !available.contains(SourceType::Virtual) {
-        bail!("ScreenCast portal does not advertise VIRTUAL sources");
+    if !available.contains(source_type) {
+        bail!("ScreenCast portal does not advertise {source_label} sources");
     }
     let session = portal
         .create_session(Default::default())
         .await
         .context("failed to create portal session")?;
+    let restore_token = match load_restore_token(source_key) {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::warn!(%error, "failed to read portal restore token");
+            None
+        }
+    };
 
     portal
         .select_sources(
             &session,
             SelectSourcesOptions::default()
-                .set_cursor_mode(CursorMode::Hidden)
-                .set_sources(BitFlags::from_flag(SourceType::Virtual))
+                .set_cursor_mode(CursorMode::Embedded)
+                .set_sources(BitFlags::from_flag(source_type))
                 // Plasma 6.7.3 with Qt 6.11 can abort when a single-select
                 // delegate accepts the dialog synchronously from its click
                 // handler. Multi-select uses the dialog's Share button and
                 // avoids that upstream crash. We still enforce exactly one
                 // stream below, so the host remains single-source.
                 .set_multiple(true)
-                .set_persist_mode(PersistMode::DoNot),
+                .set_restore_token(restore_token.as_deref())
+                .set_persist_mode(PersistMode::ExplicitlyRevoked),
         )
         .await
-        .context("failed to request a virtual source")?;
+        .with_context(|| format!("failed to request a {source_label} source"))?;
 
-    println!("Waiting for KDE to approve the virtual monitor…");
+    println!("Waiting for KDE to approve the {source_label}…");
     let response = timeout(PORTAL_APPROVAL_TIMEOUT, async {
         portal
             .start(&session, None, Default::default())
@@ -77,12 +114,17 @@ where
     })
     .await
     .context("portal approval timed out after 60 seconds")??;
+    if let Some(token) = response.restore_token()
+        && let Err(error) = save_restore_token(source_key, token)
+    {
+        tracing::warn!(%error, "failed to persist portal restore token");
+    }
     validate_stream_count(response.streams().len())?;
     let stream = &response.streams()[0];
-    if stream.source_type() != Some(SourceType::Virtual) {
+    if stream.source_type() != Some(source_type) {
         bail!(
-            "portal returned {:?} instead of a virtual monitor",
-            stream.source_type()
+            "portal returned {:?} instead of the requested {source_label}",
+            stream.source_type(),
         );
     }
 
@@ -104,13 +146,54 @@ where
         node_id = stream.pipe_wire_node_id(),
         width = size.0,
         height = size.1,
-        "virtual monitor ready"
+        source = source_label,
+        "capture source ready"
     );
     let result = callback(info).await;
     if let Err(error) = session.close().await {
         tracing::warn!(%error, "failed to close portal session cleanly");
     }
     result
+}
+
+fn restore_token_path(source_key: &str) -> Option<PathBuf> {
+    let state_root = env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))?;
+    Some(
+        state_root
+            .join("auxscreen")
+            .join(format!("portal-{source_key}.token")),
+    )
+}
+
+fn load_restore_token(source_key: &str) -> Result<Option<String>> {
+    let Some(path) = restore_token_path(source_key) else {
+        return Ok(None);
+    };
+    match fs::read_to_string(&path) {
+        Ok(token) if !token.trim().is_empty() => Ok(Some(token.trim().to_owned())),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
+fn save_restore_token(source_key: &str, token: &str) -> Result<()> {
+    let path =
+        restore_token_path(source_key).context("HOME and XDG_STATE_HOME are both unavailable")?;
+    let parent = path.parent().context("restore token path has no parent")?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| format!("failed to open {}", path.display()))?;
+    file.write_all(token.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
 }
 
 fn validate_stream_count(count: usize) -> Result<()> {

@@ -34,6 +34,7 @@ pub async fn run(args: DoctorArgs) -> Result<()> {
         "x264enc",
         "h264parse",
         "rtph264pay",
+        "videorate",
     ] {
         if gst::ElementFactory::find(element).is_some() {
             println!("[ok] GStreamer element {element}");

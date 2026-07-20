@@ -24,13 +24,34 @@ cargo run --locked --bin auxscreen-host -- serve \
   --ice-ports 9900-9910 \
   --encode-max-size 1920x1200 \
   --fps 30 \
-  --bitrate-kbps 6000
+  --bitrate-kbps 6000 \
+  --no-auth
 ```
 
 Para isolar captura/portal da sinalização e do decoder, troque `--source
-virtual` por `--source test`. Se PipeWire falhar ao negociar DMA-BUF, o host
-reconstrói o pipeline uma vez com a ponte OpenGL; `--use-gl-fallback` força esse
-caminho desde o início.
+virtual` por `--source test`. O host usa `videorate` para limitar a saída do
+monitor virtual à taxa máxima configurada sem forçar fluxo constante; isso
+preserva a entrega imediata das atualizações esparsas do KWin. O cursor é
+embutido no vídeo. Se PipeWire falhar ao negociar DMA-BUF, o host reconstrói o
+pipeline uma vez com a ponte OpenGL; `--use-gl-fallback` força esse caminho
+desde o início.
+
+`--no-auth` aceita o campo de token vazio e existe somente para acelerar testes
+na LAN. Sem essa opção, o host continua gerando e exigindo um token efêmero.
+Não exponha uma sessão sem autenticação fora de uma rede confiável.
+
+O caminho H.264 usa fila descartável de um quadro, lookahead zero, slices e
+buffer VBV curto. O renderer Android aplica `SCALE_ASPECT_FIT` depois de sua
+inicialização; uma fonte 16:9 em um tablet 16:10 deve produzir barras, nunca
+cortar as laterais.
+
+As variantes `debug` e `personal` forçam os field trials internos do libwebrtc
+`WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0` e
+`WebRTC-ZeroPlayoutDelay/min_pacing:8ms,max_decode_queue_size:1`. Isso desativa
+a suavização de reprodução para o uso interativo, aceitando mais drops em troca
+de menor latência. A variante pública `release` não ativa esse override
+experimental; antes de publicação, substitua-o pela extensão RTP playout-delay
+negociada ou revalide contra a versão de libwebrtc empacotada.
 
 O portal do KDE pode solicitar confirmação. O monitor virtual pertence à sessão
 do portal e deve desaparecer quando `auxscreen-host` termina.
@@ -48,7 +69,8 @@ adb -s RX2Y800FTYY shell am start \
   -n io.github.lamggm.auxscreen.personal/io.github.lamggm.auxscreen.MainActivity
 ```
 
-Informe no aplicativo o endpoint `ws://192.168.1.254:9898/v1/session` e o token
+Informe no aplicativo o endpoint `ws://192.168.1.254:9898/v1/session`. Deixe o
+token vazio se o host estiver usando `--no-auth`; caso contrário, informe o token
 aleatório impresso pelo host. As variantes debug e `personal` permitem WebSocket
 sem TLS, mas `personal` rejeita destinos fora de IPv4 privado/loopback. A
 variante pública `release` continua exigindo WSS.
@@ -68,8 +90,7 @@ Para um teste automatizado da variante pessoal:
 ```bash
 adb -s RX2Y800FTYY shell am start -S \
   -n io.github.lamggm.auxscreen.personal/io.github.lamggm.auxscreen.MainActivity \
-  --es endpoint ws://192.168.1.254:9898/v1/session \
-  --es token TOKEN_TEMPORARIO
+  --es endpoint ws://192.168.1.254:9898/v1/session
 ```
 
 ## Firewall

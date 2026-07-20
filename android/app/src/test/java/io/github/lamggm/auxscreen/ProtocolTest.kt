@@ -14,6 +14,14 @@ class ProtocolTest {
     }
 
     @Test
+    fun clientHelloAllowsEmptyTokenForNoAuthHost() {
+        val hello = org.json.JSONObject(
+            SignalingProtocol.clientHello("", "SM-X400", 2112, 1320, 60),
+        )
+        assertEquals("", hello.getString("token"))
+    }
+
+    @Test
     fun parsesStreamConfig() {
         val parsed = SignalingProtocol.parse(
             """{"type":"stream_config","source_width":1920,"source_height":1200,"encoded_width":1920,"encoded_height":1200,"fps":30,"bitrate_kbps":6000}""",
@@ -40,6 +48,11 @@ class ProtocolTest {
             8.4,
             2841,
             0,
+            18.4,
+            22.0,
+            10.0,
+            2.1,
+            25.0,
             null,
         )
         val json = org.json.JSONObject(payload)
@@ -48,6 +61,7 @@ class ProtocolTest {
         assertEquals(8.4, json.getDouble("rtt_ms"), 0.01)
         assertEquals(2841L, json.getLong("packets_received"))
         assertEquals(0L, json.getLong("packets_lost"))
+        assertEquals(22.0, json.getDouble("jitter_buffer_target_delay_ms"), 0.01)
     }
 
     @Test

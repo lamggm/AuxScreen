@@ -64,6 +64,11 @@ internal object SignalingProtocol {
         rttMs: Double?,
         packetsReceived: Long?,
         packetsLost: Long?,
+        jitterBufferDelayMs: Double?,
+        jitterBufferTargetDelayMs: Double?,
+        jitterBufferMinimumDelayMs: Double?,
+        decodeTimeMs: Double?,
+        processingDelayMs: Double?,
         decoder: String?,
     ): String = JSONObject()
         .put("type", "client_stats")
@@ -75,6 +80,11 @@ internal object SignalingProtocol {
         .put("rtt_ms", rttMs ?: JSONObject.NULL)
         .put("packets_received", packetsReceived ?: JSONObject.NULL)
         .put("packets_lost", packetsLost ?: JSONObject.NULL)
+        .put("jitter_buffer_delay_ms", jitterBufferDelayMs ?: JSONObject.NULL)
+        .put("jitter_buffer_target_delay_ms", jitterBufferTargetDelayMs ?: JSONObject.NULL)
+        .put("jitter_buffer_minimum_delay_ms", jitterBufferMinimumDelayMs ?: JSONObject.NULL)
+        .put("decode_time_ms", decodeTimeMs ?: JSONObject.NULL)
+        .put("processing_delay_ms", processingDelayMs ?: JSONObject.NULL)
         .put("decoder", decoder ?: JSONObject.NULL)
         .toString()
 

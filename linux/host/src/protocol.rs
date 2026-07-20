@@ -42,6 +42,16 @@ pub enum ClientMessage {
         packets_received: Option<u64>,
         #[serde(default)]
         packets_lost: Option<i64>,
+        #[serde(default)]
+        jitter_buffer_delay_ms: Option<f64>,
+        #[serde(default)]
+        jitter_buffer_target_delay_ms: Option<f64>,
+        #[serde(default)]
+        jitter_buffer_minimum_delay_ms: Option<f64>,
+        #[serde(default)]
+        decode_time_ms: Option<f64>,
+        #[serde(default)]
+        processing_delay_ms: Option<f64>,
         decoder: Option<String>,
     },
 }

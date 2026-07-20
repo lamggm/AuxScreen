@@ -35,8 +35,12 @@ cargo run --locked --bin auxscreen-host -- doctor
 cargo run --locked --bin auxscreen-host -- serve \
   --source test \
   --listen 192.168.1.254:9898 \
-  --ice-ip 192.168.1.254
+  --ice-ip 192.168.1.254 \
+  --no-auth
 ```
+
+`--no-auth` é apenas para iteração na LAN; sem ele, o host exige o token
+efêmero exibido no terminal.
 
 As instruções completas de dependências, build, firewall e deploy estão em
 [docs/BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md).

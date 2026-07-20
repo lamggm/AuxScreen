@@ -46,7 +46,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
-import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 
 class MainActivity : ComponentActivity() {
@@ -120,7 +119,7 @@ private fun ConnectionScreen(
     val metrics = LocalResources.current.displayMetrics
 
     LaunchedEffect(debugEndpoint, debugToken) {
-        if (!debugEndpoint.isNullOrBlank() && !debugToken.isNullOrBlank()) {
+        if (!debugEndpoint.isNullOrBlank() && debugToken != null) {
             controller.connect(debugEndpoint, debugToken, metrics.widthPixels, metrics.heightPixels)
         }
     }
@@ -148,7 +147,7 @@ private fun ConnectionScreen(
                 onValueChange = { token = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text("Token da sessão") },
+                label = { Text("Token (opcional com --no-auth)") },
                 enabled = state !is ConnectionState.Connecting && state !is ConnectionState.Reconnecting,
             )
             Spacer(Modifier.height(20.dp))
@@ -201,7 +200,6 @@ private fun StreamingScreen(controller: AuxScreenController, state: ConnectionSt
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 SurfaceViewRenderer(context).also { view ->
-                    view.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                     controller.attachRenderer(view)
                 }
             },
@@ -224,6 +222,7 @@ private fun StreamingScreen(controller: AuxScreenController, state: ConnectionSt
                         append(state.details)
                         if (stats.renderedFps > 0) append(" · %.1f render".format(stats.renderedFps))
                         stats.rttMs?.let { append(" · %.0f ms RTT".format(it)) }
+                        stats.jitterBufferTargetDelayMs?.let { append(" · %.0f ms buffer".format(it)) }
                         val received = stats.packetsReceived
                         val lost = stats.packetsLost
                         if (received != null && lost != null && received + lost > 0) {

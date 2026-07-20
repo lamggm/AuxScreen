@@ -34,6 +34,10 @@ async fn main() -> Result<()> {
                 portal::with_virtual_capture(|capture| preview::run(SourceArg::Virtual, capture))
                     .await
             }
+            SourceArg::Monitor => {
+                portal::with_monitor_capture(|capture| preview::run(SourceArg::Monitor, capture))
+                    .await
+            }
         },
         Command::Serve(args) => match args.source {
             SourceArg::Test => {
@@ -42,6 +46,9 @@ async fn main() -> Result<()> {
             }
             SourceArg::Virtual => {
                 portal::with_virtual_capture(|capture| server::run(args, capture)).await
+            }
+            SourceArg::Monitor => {
+                portal::with_monitor_capture(|capture| server::run(args, capture)).await
             }
         },
     }

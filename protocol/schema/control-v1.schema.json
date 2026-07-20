@@ -21,7 +21,7 @@
       "properties": {
         "type": { "const": "client_hello" },
         "protocol": { "const": 1 },
-        "token": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "token": { "type": "string", "maxLength": 128 },
         "device": { "type": "string", "minLength": 1, "maxLength": 128 },
         "max_width": { "type": "integer", "minimum": 320 },
         "max_height": { "type": "integer", "minimum": 240 },
@@ -112,6 +112,11 @@
         "rtt_ms": { "type": ["number", "null"], "minimum": 0 },
         "packets_received": { "type": ["integer", "null"], "minimum": 0 },
         "packets_lost": { "type": ["integer", "null"] },
+        "jitter_buffer_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "jitter_buffer_target_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "jitter_buffer_minimum_delay_ms": { "type": ["number", "null"], "minimum": 0 },
+        "decode_time_ms": { "type": ["number", "null"], "minimum": 0 },
+        "processing_delay_ms": { "type": ["number", "null"], "minimum": 0 },
         "decoder": { "type": ["string", "null"] }
       },
       "additionalProperties": false

@@ -8,7 +8,11 @@ use gst::{glib, prelude::*};
 use gst_webrtc::prelude::WebRTCICEExt;
 use tokio::sync::mpsc;
 
-use crate::{cli::ServeArgs, portal::CaptureInfo, protocol::ServerMessage};
+use crate::{
+    cli::{EncoderArg, ServeArgs},
+    portal::CaptureInfo,
+    protocol::ServerMessage,
+};
 
 #[derive(Debug, Clone)]
 pub struct MediaSession(Arc<MediaInner>);
@@ -53,16 +57,26 @@ impl MediaSession {
         } else {
             "videoconvert !"
         };
+        let nvenc_available = gst::ElementFactory::find("nvh264enc").is_some();
+        let selected_encoder = encoder_name(config, nvenc_available);
+        let encoder_format = if selected_encoder == "nvenc" {
+            "NV12"
+        } else {
+            "I420"
+        };
+        let encoder = encoder_description(config, nvenc_available)?;
+        let rate_filter = format!("videorate drop-only=true max-rate={} !", config.fps);
         let description = format!(
-            "{source} ! queue max-size-buffers=2 leaky=downstream ! {bridge} videoscale ! \
-             video/x-raw,format=I420,width={},height={},framerate={}/1 ! \
-             x264enc tune=zerolatency speed-preset=ultrafast bitrate={} key-int-max={} bframes=0 byte-stream=false aud=true ! \
+            "{source} ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream ! {bridge} videoscale ! \
+             {rate_filter} video/x-raw,format={encoder_format},width={},height={} ! \
+             {encoder} ! \
              video/x-h264,profile=constrained-baseline,stream-format=avc,alignment=au ! \
-             h264parse config-interval=-1 ! rtph264pay name=vpay pt=96 mtu=1200 config-interval=-1 ! \
+             h264parse config-interval=-1 ! rtph264pay name=vpay pt=96 mtu=1200 config-interval=-1 aggregate-mode=zero-latency ! \
              application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! webrtc. \
-             webrtcbin name=webrtc bundle-policy=max-bundle latency=50",
-            encoded.0, encoded.1, config.fps, config.bitrate_kbps, config.fps
+             webrtcbin name=webrtc bundle-policy=max-bundle latency=0",
+            encoded.0, encoded.1
         );
+        tracing::info!(encoder = selected_encoder, "selected H.264 encoder");
         tracing::debug!(%description, "building media pipeline");
         let pipeline = gst::parse::launch(&description)?
             .downcast::<gst::Pipeline>()
@@ -130,11 +144,32 @@ impl MediaSession {
     }
 
     pub fn start(&self) -> Result<()> {
-        self.0
-            .pipeline
-            .set_state(gst::State::Playing)
-            .context("failed to start media pipeline")?;
-        Ok(())
+        match self.0.pipeline.set_state(gst::State::Playing) {
+            Ok(_) => Ok(()),
+            Err(state_error) => {
+                let bus_error = self.0.pipeline.bus().and_then(|bus| {
+                    bus.timed_pop_filtered(
+                        gst::ClockTime::from_mseconds(250),
+                        &[gst::MessageType::Error],
+                    )
+                });
+                let _ = self.0.pipeline.set_state(gst::State::Null);
+                if let Some(message) = bus_error
+                    && let gst::MessageView::Error(error) = message.view()
+                {
+                    bail!(
+                        "failed to start media pipeline: GStreamer error from {}: {} ({})",
+                        error
+                            .src()
+                            .map(|src| src.path_string())
+                            .unwrap_or_else(|| "unknown".into()),
+                        error.error(),
+                        error.debug().unwrap_or_else(|| "no details".into())
+                    );
+                }
+                Err(state_error).context("failed to start media pipeline")
+            }
+        }
     }
 
     fn create_offer(&self) -> Result<()> {
@@ -229,6 +264,34 @@ impl MediaSession {
     }
 }
 
+fn encoder_name(config: &ServeArgs, nvenc_available: bool) -> &'static str {
+    match config.encoder {
+        EncoderArg::Nvenc => "nvenc",
+        EncoderArg::X264 => "x264",
+        EncoderArg::Auto if nvenc_available => "nvenc",
+        EncoderArg::Auto => "x264",
+    }
+}
+
+fn encoder_description(config: &ServeArgs, nvenc_available: bool) -> Result<String> {
+    match encoder_name(config, nvenc_available) {
+        "nvenc" if nvenc_available => Ok(format!(
+            "nvh264enc preset=p1 tune=ultra-low-latency zerolatency=true \
+             rc-mode=cbr bitrate={} gop-size={} bframes=0 rc-lookahead=0 \
+             multi-pass=disabled cabac=false aud=true repeat-sequence-header=true",
+            config.bitrate_kbps, config.fps
+        )),
+        "nvenc" => bail!(
+            "NVENC was requested but nvh264enc is unavailable; verify the GStreamer nvcodec plugin and NVIDIA driver"
+        ),
+        _ => Ok(format!(
+            "x264enc tune=zerolatency speed-preset=ultrafast bitrate={} key-int-max={} bframes=0 \
+             sliced-threads=true rc-lookahead=0 sync-lookahead=0 vbv-buf-capacity=50 byte-stream=false aud=true",
+            config.bitrate_kbps, config.fps
+        )),
+    }
+}
+
 impl Drop for MediaInner {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gst::State::Null);
@@ -237,15 +300,16 @@ impl Drop for MediaInner {
 
 fn source_description(config: &ServeArgs, capture: &CaptureInfo) -> Result<String> {
     if let (Some(fd), Some(node_id)) = (&capture.pipewire_fd, capture.node_id) {
+        let keepalive_ms = (1000 / config.fps).max(1);
         Ok(format!(
-            "pipewiresrc fd={} path={} do-timestamp=true keepalive-time=16",
+            "pipewiresrc fd={} path={} do-timestamp=true keepalive-time={keepalive_ms} use-bufferpool=false",
             fd.as_raw_fd(),
             node_id
         ))
     } else if config.source == crate::cli::SourceArg::Test {
         Ok("videotestsrc pattern=ball is-live=true do-timestamp=true".to_string())
     } else {
-        bail!("virtual source is missing its PipeWire descriptor")
+        bail!("capture source is missing its PipeWire descriptor")
     }
 }
 
@@ -279,5 +343,14 @@ mod tests {
     #[test]
     fn keeps_small_even_source() {
         assert_eq!(fit_dimensions((1280, 800), (1920, 1200)), (1280, 800));
+    }
+
+    #[test]
+    fn limits_sixty_fps_input_without_forcing_a_constant_rate() {
+        gst::init().unwrap();
+        let description = "videotestsrc num-buffers=30 ! video/x-raw,framerate=60/1 ! \
+            videoconvert ! videoscale ! videorate drop-only=true max-rate=30 ! \
+            video/x-raw,format=I420 ! fakesink";
+        assert!(gst::parse::launch(description).is_ok());
     }
 }

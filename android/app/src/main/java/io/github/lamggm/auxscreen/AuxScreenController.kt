@@ -25,6 +25,7 @@ import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RendererCommon
 import org.webrtc.RTCStatsReport
 import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
@@ -43,6 +44,12 @@ internal data class StreamStats(
     val rttMs: Double? = null,
     val packetsReceived: Long? = null,
     val packetsLost: Long? = null,
+    val jitterBufferDelayMs: Double? = null,
+    val jitterBufferTargetDelayMs: Double? = null,
+    val jitterBufferMinimumDelayMs: Double? = null,
+    val decodeTimeMs: Double? = null,
+    val processingDelayMs: Double? = null,
+    val decoder: String? = null,
 )
 
 internal sealed interface ConnectionState {
@@ -91,11 +98,16 @@ internal class AuxScreenController(context: Context) : ViewModel() {
         private set
 
     init {
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(appContext)
-                .setEnableInternalTracer(false)
-                .createInitializationOptions(),
-        )
+        val initialization = PeerConnectionFactory.InitializationOptions.builder(appContext)
+            .setEnableInternalTracer(false)
+        if (BuildConfig.FORCE_ZERO_PLAYOUT_DELAY) {
+            initialization.setFieldTrials(
+                "WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/" +
+                    "WebRTC-ZeroPlayoutDelay/min_pacing:8ms,max_decode_queue_size:1/",
+            )
+            Log.w(TAG, "zero playout delay forced for personal/debug low-latency build")
+        }
+        PeerConnectionFactory.initialize(initialization.createInitializationOptions())
         peerFactory = PeerConnectionFactory.builder()
             .setVideoDecoderFactory(org.webrtc.DefaultVideoDecoderFactory(eglBase.eglBaseContext))
             .setVideoEncoderFactory(org.webrtc.DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, false))
@@ -107,7 +119,11 @@ internal class AuxScreenController(context: Context) : ViewModel() {
         renderer?.let { old -> remoteVideo?.removeSink(old) }
         renderer = view
         view.init(eglBase.eglBaseContext, null)
-        view.setEnableHardwareScaler(true)
+        view.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+        // SurfaceView's fixed-size hardware scaler can leave a 16:9 surface
+        // larger than the 16:10 AndroidView and crop both horizontal edges.
+        // Let the EGL renderer letterbox inside the view instead.
+        view.setEnableHardwareScaler(false)
         view.setMirror(false)
         remoteVideo?.addSink(view)
     }
@@ -125,10 +141,6 @@ internal class AuxScreenController(context: Context) : ViewModel() {
                 state = ConnectionState.Error(it.message ?: "Endereço inválido")
                 return
             }
-        if (token.isBlank()) {
-            state = ConnectionState.Error("Informe o token mostrado pelo host")
-            return
-        }
         connectionParams = ConnectionParams(normalized, token.trim(), width, height)
         manualDisconnect = false
         reconnectAttempts = 0
@@ -312,6 +324,19 @@ internal class AuxScreenController(context: Context) : ViewModel() {
             (bytes - previousBytes) * 8.0 / elapsedSeconds / 1_000.0
         } else null
         val jitterMs = (inbound.members["jitter"] as? Number)?.toDouble()?.times(1_000.0)
+        val emitted = (inbound.members["jitterBufferEmittedCount"] as? Number)?.toDouble()
+        fun averagePerFrame(member: String, count: Double?): Double? {
+            val totalSeconds = (inbound.members[member] as? Number)?.toDouble() ?: return null
+            if (count == null || count <= 0.0) return null
+            return totalSeconds * 1_000.0 / count
+        }
+        val jitterBufferDelayMs = averagePerFrame("jitterBufferDelay", emitted)
+        val jitterBufferTargetDelayMs = averagePerFrame("jitterBufferTargetDelay", emitted)
+        val jitterBufferMinimumDelayMs = averagePerFrame("jitterBufferMinimumDelay", emitted)
+        val decodedCount = decoded?.toDouble()
+        val decodeTimeMs = averagePerFrame("totalDecodeTime", decodedCount)
+        val processingDelayMs = averagePerFrame("totalProcessingDelay", decodedCount)
+        val decoder = inbound.members["decoderImplementation"] as? String
         val rttMs = report.statsMap.values
             .firstOrNull { it.type == "candidate-pair" && it.members["state"] == "succeeded" }
             ?.members?.get("currentRoundTripTime")
@@ -328,6 +353,12 @@ internal class AuxScreenController(context: Context) : ViewModel() {
             rttMs,
             packetsReceived,
             packetsLost,
+            jitterBufferDelayMs,
+            jitterBufferTargetDelayMs,
+            jitterBufferMinimumDelayMs,
+            decodeTimeMs,
+            processingDelayMs,
+            decoder,
         )
         val current = state as? ConnectionState.Streaming ?: return
         state = current.copy(stats = stats)
@@ -341,7 +372,12 @@ internal class AuxScreenController(context: Context) : ViewModel() {
                 rttMs,
                 packetsReceived,
                 packetsLost,
-                null,
+                jitterBufferDelayMs,
+                jitterBufferTargetDelayMs,
+                jitterBufferMinimumDelayMs,
+                decodeTimeMs,
+                processingDelayMs,
+                decoder,
             ),
         )
     }

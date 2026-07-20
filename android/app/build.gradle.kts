@@ -15,6 +15,7 @@ android {
         versionName = "0.1.0-rc.1"
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         buildConfigField("boolean", "ALLOW_LAN_CLEARTEXT", "false")
+        buildConfigField("boolean", "FORCE_ZERO_PLAYOUT_DELAY", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,6 +46,7 @@ android {
         debug {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             buildConfigField("boolean", "ALLOW_LAN_CLEARTEXT", "true")
+            buildConfigField("boolean", "FORCE_ZERO_PLAYOUT_DELAY", "true")
         }
         release {
             isMinifyEnabled = true
@@ -61,6 +63,7 @@ android {
             versionNameSuffix = "-personal"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             buildConfigField("boolean", "ALLOW_LAN_CLEARTEXT", "true")
+            buildConfigField("boolean", "FORCE_ZERO_PLAYOUT_DELAY", "true")
             signingConfig = if (hasPersonalSigning) {
                 signingConfigs.getByName("personal")
             } else {

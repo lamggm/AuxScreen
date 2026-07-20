@@ -32,7 +32,15 @@ pub struct DoctorArgs {
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum SourceArg {
     Virtual,
+    Monitor,
     Test,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum EncoderArg {
+    Auto,
+    Nvenc,
+    X264,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -64,9 +72,17 @@ pub struct ServeArgs {
     #[arg(long, default_value_t = 6000, value_parser = clap::value_parser!(u32).range(500..=50000))]
     pub bitrate_kbps: u32,
 
+    /// Select the H.264 encoder. Auto prefers NVIDIA NVENC when available.
+    #[arg(long, value_enum, default_value_t = EncoderArg::Auto)]
+    pub encoder: EncoderArg,
+
     /// Use an OpenGL upload/download bridge for PipeWire DMA-BUF negotiation.
     #[arg(long, default_value_t = false)]
     pub use_gl_fallback: bool,
+
+    /// Disable session-token validation for local LAN testing.
+    #[arg(long, default_value_t = false)]
+    pub no_auth: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
